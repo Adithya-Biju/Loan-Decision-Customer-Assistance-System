@@ -13,15 +13,21 @@ LOAN_ID_PATTERN = re.compile(r"\bHDFC\d{6}\b")
 
 
 def router_node(state: AgentState) -> AgentState:
+
     query = state["query"]
     loan_id = state.get("loan_id")
 
     if not loan_id:
         match = LOAN_ID_PATTERN.search(query.upper())
+
         if match:
             loan_id = match.group(0)
 
     lowered = query.lower()
+
+    # -------------------------
+    # GENERAL
+    # -------------------------
 
     general_patterns = [
         "hello",
@@ -38,8 +44,100 @@ def router_node(state: AgentState) -> AgentState:
         return {
             "loan_id": loan_id,
             "mode": "general",
-            "retry_count": state.get("retry_count", 0),
         }
+
+    # -------------------------
+    # CUSTOMER ASSISTANCE
+    # -------------------------
+
+    improvement_patterns = [
+        "what can i improve",
+        "what should i improve",
+        "how can i improve",
+        "improve before applying",
+        "improve my application",
+        "improve before reapplying",
+        "what should i fix",
+        "what can i fix",
+    ]
+
+    if any(pattern in lowered for pattern in improvement_patterns):
+
+        if not loan_id:
+            return {
+                "mode": "unsupported",
+                "error": (
+                    "Please provide a loan ID for "
+                    "customer-specific improvement guidance."
+                ),
+            }
+
+        return {
+            "loan_id": loan_id,
+            "mode": "customer_assistance",
+        }
+
+    # -------------------------
+    # DECISION REVIEW
+    # -------------------------
+
+    decision_patterns = [
+        "why was",
+        "why is",
+        "why did",
+        "why rejected",
+        "explain the decision",
+        "explain this decision",
+        "review this loan",
+        "review the loan",
+        "review this application",
+        "why is this risky",
+    ]
+
+    if any(pattern in lowered for pattern in decision_patterns):
+
+        if not loan_id:
+            return {
+                "mode": "unsupported",
+                "error": "Please provide a loan ID for decision review.",
+            }
+
+        return {
+            "loan_id": loan_id,
+            "mode": "decision_review",
+        }
+
+    # -------------------------
+    # LOAN ANALYSIS
+    # -------------------------
+
+    analysis_patterns = [
+        "analyze loan",
+        "analyze this loan",
+        "analyze the loan",
+        "analyze application",
+        "analyze this application",
+        "analyze the application",
+        "risk analysis",
+        "financial analysis",
+    ]
+
+    if any(pattern in lowered for pattern in analysis_patterns):
+
+        if not loan_id:
+            return {
+                "mode": "unsupported",
+                "error": "Please provide a loan ID for loan analysis.",
+            }
+
+        return {
+            "loan_id": loan_id,
+            "mode": "loan_analysis",
+        }
+
+    # -------------------------
+    # POLICY
+    # -------------------------
 
     policy_patterns = [
         "policy",
@@ -57,54 +155,23 @@ def router_node(state: AgentState) -> AgentState:
         "employment requirement",
     ]
 
-    if any(pattern in lowered for pattern in policy_patterns) and not loan_id:
+    if any(pattern in lowered for pattern in policy_patterns):
+
         return {
-            "loan_id": None,
+            "loan_id": loan_id,
             "mode": "policy",
-            "retry_count": state.get("retry_count", 0),
         }
 
-    improvement_patterns = [
-        "what can i improve",
-        "what should i improve",
-        "how can i improve",
-        "improve before applying",
-        "improve my application",
-        "improve before reapplying",
-        "what should i fix",
-        "what can i fix",
-    ]
-
-    if any(pattern in lowered for pattern in improvement_patterns):
-        if not loan_id:
-            return {
-                "loan_id": None,
-                "mode": "unsupported",
-                "error": (
-                    "Please provide a loan ID for customer-specific "
-                    "improvement guidance."
-                ),
-            }
-
-        return {
-            "loan_id": loan_id,
-            "mode": "customer_assistance",
-            "retry_count": state.get("retry_count", 0),
-        }
-
-    if loan_id:
-        return {
-            "loan_id": loan_id,
-            "mode": "decision_review",
-            "retry_count": state.get("retry_count", 0),
-        }
+    # -------------------------
+    # UNKNOWN
+    # -------------------------
 
     return {
-        "loan_id": None,
+        "loan_id": loan_id,
         "mode": "unsupported",
         "error": (
-            "I can help analyze a specific loan or answer policy questions. "
-            "Please provide a loan ID such as HDFC100125."
+            "I can help analyze a specific loan, "
+            "answer policy questions, or review a loan decision."
         ),
     }
 
@@ -226,11 +293,14 @@ def route_after_router(state: AgentState) -> str:
 
 
 def should_continue_after_analysis(state: AgentState) -> str:
+
     if state.get("error"):
         return "error"
 
-    return "policy"
+    if state["mode"] == "loan_analysis":
+        return "final"
 
+    return "policy"
 
 def should_continue_after_policy(state: AgentState) -> str:
     if state.get("error"):
@@ -268,10 +338,59 @@ def human_review_node(state: AgentState) -> AgentState:
 
 
 def final_node(state: AgentState) -> AgentState:
-    if state.get("policy_response") and state["mode"] == "policy":
-        return {
-            "final_answer": state["policy_response"].answer,
-        }
+
+    if state["mode"] == "loan_analysis":
+        loan_analysis = state.get("loan_analysis")
+
+        if loan_analysis:
+            return {
+                "final_answer": (
+                    f"Loan {loan_analysis.loan_id}\n\n"
+                    f"Status: {loan_analysis.loan_status}\n"
+                    f"Risk Level: {loan_analysis.financial_risk.value}\n"
+                    f"Risk Score: {loan_analysis.risk_score}/100\n\n"
+                    f"Risk Factors:\n"
+                    + "\n".join(
+                        f"- {factor}"
+                        for factor in loan_analysis.risk_factors
+                    )
+                    + "\n\n"
+                    f"Positive Factors:\n"
+                    + "\n".join(
+                        f"- {factor}"
+                        for factor in loan_analysis.positive_factors
+                    )
+                    + "\n\n"
+                    f"Manual Review Required: "
+                    f"{'Yes' if loan_analysis.requires_manual_review else 'No'}"
+                )
+            }
+
+    if state["mode"] == "policy":
+        policy_response = state.get("policy_response")
+
+        if policy_response:
+            return {
+                "final_answer": policy_response.answer
+            }
+
+    if state["mode"] == "customer_assistance":
+        customer_guidance = state.get("customer_guidance")
+
+        if customer_guidance:
+            return {
+                "final_answer": "\n".join(
+                    customer_guidance.recommendations
+                )
+            }
+
+    if state["mode"] == "decision_review":
+        final_recommendation = state.get("final_recommendation")
+
+        if final_recommendation:
+            return {
+                "final_answer": final_recommendation.decision_summary
+            }
 
     return state
 
@@ -291,25 +410,27 @@ def build_loan_workflow():
     graph.add_edge(START, "router")
 
     graph.add_conditional_edges(
-        "router",
-        route_after_router,
+    "router",
+    route_after_router,
         {
-            "general": "general",
-            "policy": "policy_agent",
-            "customer_assistance": "loan_analysis_agent",
-            "decision_review": "loan_analysis_agent",
-            "unsupported": "workflow_error",
+        "general": "general",
+        "policy": "policy_agent",
+        "loan_analysis": "loan_analysis_agent",
+        "decision_review": "loan_analysis_agent",
+        "customer_assistance": "loan_analysis_agent",
+        "unsupported": "workflow_error",
         },
     )
 
     graph.add_edge("general", END)
 
     graph.add_conditional_edges(
-        "loan_analysis_agent",
-        should_continue_after_analysis,
+    "loan_analysis_agent",
+    should_continue_after_analysis,
         {
-            "policy": "policy_agent",
-            "error": "workflow_error",
+        "policy": "policy_agent",
+        "final": "final",
+        "error": "workflow_error",
         },
     )
 
