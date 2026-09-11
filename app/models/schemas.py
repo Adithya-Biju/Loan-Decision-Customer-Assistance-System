@@ -40,7 +40,13 @@ class CoverageStatus(str, Enum):
 # ---------------------------------------------------------------------------
 
 class LoanAnalyzeRequest(BaseModel):
-    loan_id: str = Field(..., examples=["HDFC100125"], description="Loan ID in HDFC1000xx format")
+    query: str = Field(
+        ...,
+        min_length=1,
+        max_length=1000,
+        examples=["Analyze loan HDFC100125"],
+        description="Natural-language loan analysis request"
+    )
 
 
 class ChatRequest(BaseModel):
@@ -69,6 +75,7 @@ class LoanSearchParams(BaseModel):
 
 class LoanAnalysis(BaseModel):
     loan_id: str
+    loan_status: str
     financial_risk: RiskLevel
     risk_score: int = Field(..., ge=0, le=100)
     risk_factors: list[str]

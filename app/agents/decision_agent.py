@@ -106,6 +106,12 @@ def _is_decision_review_query(query: str) -> bool:
     lowered = query.lower()
 
     patterns = [
+        "analyze loan",
+        "analyze this loan",
+        "analyze the loan",
+        "analyze application",
+        "analyze this application",
+        "analyze the application",
         "why was",
         "why is",
         "why did",
@@ -115,9 +121,13 @@ def _is_decision_review_query(query: str) -> bool:
         "explain the decision",
         "explain this decision",
         "review this loan",
+        "review the loan",
+        "review this application",
+        "review the application",
     ]
 
     return any(pattern in lowered for pattern in patterns)
+
 
 
 def _contains_prompt_injection(text: str) -> bool:
@@ -334,6 +344,8 @@ def _generate_customer_guidance(
 def run_customer_review_agent(
     query: str,
     loan_id: str | None = None,
+    loan_analysis: LoanAnalysis | None = None,
+    policy_response: RAGResponse | None = None,
 ):
     if not query.strip():
         return {
@@ -348,9 +360,10 @@ def run_customer_review_agent(
             )
         }
 
-    resolved_loan_id = loan_id or _extract_loan_id(query)
+    if not loan_id:
+        loan_id = _extract_loan_id(query)
 
-    if not resolved_loan_id:
+    if not loan_id:
         return {
             "error": (
                 "Please provide a valid loan ID so I can review "
@@ -358,40 +371,26 @@ def run_customer_review_agent(
             )
         }
 
-    resolved_loan_id = resolved_loan_id.upper()
+    loan_id = loan_id.upper()
 
-    if not LOAN_ID_PATTERN.match(resolved_loan_id):
+    if not LOAN_ID_PATTERN.match(loan_id):
         return {
-            "error": f"'{resolved_loan_id}' is not a valid loan ID."
+            "error": f"'{loan_id}' is not a valid loan ID."
         }
 
-    loan_result = run_loan_analysis(
-        query=query,
-        loan_id_hint=resolved_loan_id,
-    )
-
-    if loan_result.error or loan_result.loan_analysis is None:
+    if loan_analysis is None:
         return {
-            "error": loan_result.error
-            or "Loan analysis could not be completed.",
-            "loan_id": resolved_loan_id,
+            "error": "Loan analysis is required before decision review."
         }
 
-    loan_analysis = loan_result.loan_analysis
+    if policy_response is None:
+        return {
+            "error": "Policy information is required before decision review."
+        }
 
-    customer_query = _is_customer_improvement_query(query)
-    decision_query = _is_decision_review_query(query)
-
-    if customer_query:
-        policy_query = (
-            "How can an applicant improve the financial factors "
-            "identified in this loan analysis before applying again?"
-        )
-
-        policy_response = run_policy_agent(policy_query)
-
+    if _is_customer_improvement_query(query):
         feedback_raw = get_customer_feedback.invoke(
-            {"loan_id": resolved_loan_id}
+            {"loan_id": loan_id}
         )
 
         try:
@@ -408,14 +407,7 @@ def run_customer_review_agent(
 
         return _generate_customer_guidance(prompt)
 
-    if decision_query:
-        policy_query = _build_policy_query(
-            query=query,
-            loan_analysis=loan_analysis,
-        )
-
-        policy_response = run_policy_agent(policy_query)
-
+    if _is_decision_review_query(query):
         requires_human_review, escalation_reason = (
             determine_escalation(
                 loan_analysis=loan_analysis,
@@ -432,7 +424,12 @@ def run_customer_review_agent(
             escalation_reason=escalation_reason,
         )
 
-        return _generate_final_recommendation(prompt)
+        result = _generate_final_recommendation(prompt)
+
+        result.requires_human_review = requires_human_review
+        result.escalation_reason = escalation_reason
+
+        return result
 
     return {
         "error": (
