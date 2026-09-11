@@ -20,6 +20,7 @@ import re
 
 from app.core.database import SessionLocal
 from app.repositories import loan_repository
+from app.guardrails.pii import sanitize_for_llm
 
 try:
     from langchain_core.tools import tool
@@ -64,7 +65,7 @@ def get_loan_details(loan_id: str) -> str:
 
     if result is None:
         return f"No loan application found with ID '{loan_id}'. Do not invent details for it."
-    return json.dumps(result)
+    return json.dumps(sanitize_for_llm(result))
 
 
 @tool
@@ -88,7 +89,7 @@ def get_customer_financials(loan_id: str) -> str:
 
     if result is None:
         return f"No financial record found for loan ID '{loan_id}'."
-    return json.dumps(result)
+    return json.dumps(sanitize_for_llm(result))
 
 
 @tool
@@ -111,7 +112,7 @@ def get_credit_history(loan_id: str) -> str:
 
     if result is None:
         return f"No credit history record found for loan ID '{loan_id}'."
-    return json.dumps(result)
+    return json.dumps(sanitize_for_llm(result))
 
 
 @tool
@@ -135,7 +136,7 @@ def get_previous_loans(loan_id: str) -> str:
 
     if result is None:
         return f"No previous-loan record found for loan ID '{loan_id}'."
-    return json.dumps(result)
+    return json.dumps(sanitize_for_llm(result))
 
 
 @tool
@@ -157,7 +158,7 @@ def get_employment_details(loan_id: str) -> str:
 
     if result is None:
         return f"No employment record found for loan ID '{loan_id}'."
-    return json.dumps(result)
+    return json.dumps(sanitize_for_llm(result))
 
 
 # The full set Agent 1 is bound to. Deliberately does NOT include
