@@ -140,3 +140,27 @@ class ErrorResponse(BaseModel):
     error: str
     detail: str
     loan_id: str | None = None
+
+# ---------------------------------------------------------------------------
+# LangGraph -- Query Routing
+# ---------------------------------------------------------------------------
+
+class RoutingDecision(BaseModel):
+    intent: str = Field(
+        ...,
+        description=(
+            "The user's intent. Must be one of: "
+            "general, policy, loan_analysis, decision_review, "
+            "customer_assistance, unsupported."
+        ),
+    )
+
+    loan_id: str | None = Field(
+        default=None,
+        description=(
+            "HDFC loan ID relevant to the request, such as HDFC100125. "
+            "Use the loan ID from the current query when explicitly provided. "
+            "For follow-up questions, reuse the active loan ID from context "
+            "when appropriate."
+        ),
+    )
